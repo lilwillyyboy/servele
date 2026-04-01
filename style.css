@@ -18,9 +18,14 @@
   --sh:0 1px 4px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.2);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;overscroll-behavior:none}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);
-  display:flex;flex-direction:column;transition:background .25s,color .25s;overflow-x:hidden}
+html{height:100%;height:-webkit-fill-available}
+body{
+  font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);
+  display:flex;flex-direction:column;
+  min-height:100vh;min-height:-webkit-fill-available;
+  transition:background .25s,color .25s;
+  overflow-x:clip;
+}
 
 /* ── HEADER ─────────────────────────────────────────────────────── */
 header{
@@ -29,7 +34,6 @@ header{
   border-bottom:1px solid var(--border);
   background:var(--surface);
   flex-shrink:0;gap:8px;
-  position:sticky;top:0;z-index:50;
 }
 .logo{
   font-family:'DM Serif Display',serif;
@@ -77,7 +81,6 @@ header{
   padding:10px 12px;background:var(--surface);
   border-bottom:1px solid var(--border);
   position:relative;flex-shrink:0;
-  position:sticky;top:57px;z-index:40;
 }
 .sinp{
   width:100%;padding:11px 42px 11px 14px;
@@ -117,7 +120,15 @@ header{
 .acp{font-size:12px;color:var(--text3);flex-shrink:0}
 
 /* ── SCROLL AREA ─────────────────────────────────────────────────── */
-.scroll-area{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 12px 20px}
+.scroll-area{
+  flex:1;
+  overflow-y:auto;
+  overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  padding:10px 12px 20px;
+  touch-action:pan-y;
+}
 
 /* ── SUCCESS PANEL ───────────────────────────────────────────────── */
 .succ{

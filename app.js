@@ -1,7 +1,4 @@
-// ═══════════════════════════════════════════════════════════════
 // PLAYERS — top 100, post Miami Open 30 Mar 2026
-// [rank, name, nationality, age, titles, hand, backhand]
-// ═══════════════════════════════════════════════════════════════
 const RAW=[
   [1,"Carlos Alcaraz","Spain",22,17,"Right","Two-handed"],
   [2,"Jannik Sinner","Italy",24,26,"Right","Two-handed"],
@@ -106,98 +103,84 @@ const RAW=[
 ];
 const ALL=RAW.map(r=>({rank:r[0],name:r[1],nat:r[2],age:r[3],titles:r[4],hand:r[5],bh:r[6]}));
 
-// ═══════════════════════════════════════════════════════════════
-// STORAGE — pure localStorage, namespaced
-// All accounts and stats live in localStorage under 'sv_db_' prefix.
-// This is reliable everywhere; window.storage is not available here.
-// ═══════════════════════════════════════════════════════════════
-const DB_PFX = 'sv_db_';
+// SUPABASE
+const SB_URL='https://dvsaccnwpnpeiefnvsmv.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2c2FjY253cG5wZWllZm52c212Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMjQ3NjYsImV4cCI6MjA5MDYwMDc2Nn0.WM2IHQCEY-TXrWrJ9LI7jMiCB-Tq_CMMDDpvZGLLTwc';
+const SBH={'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY};
 
-const db = {
-  get(k)   { try { const v=localStorage.getItem(DB_PFX+k); return v?JSON.parse(v):null; } catch{ return null; } },
-  set(k,v) { try { localStorage.setItem(DB_PFX+k, JSON.stringify(v)); return true; } catch{ return false; } },
-  del(k)   { try { localStorage.removeItem(DB_PFX+k); } catch{} },
-  keys(pfx){ // return all logical keys starting with pfx
-    const out=[];
-    try {
-      for(let i=0;i<localStorage.length;i++){
-        const k=localStorage.key(i);
-        if(k&&k.startsWith(DB_PFX+pfx)) out.push(k.slice(DB_PFX.length));
-      }
-    } catch{}
-    return out;
-  }
-};
-
-// ═══════════════════════════════════════════════════════════════
-// AUTH
-// ═══════════════════════════════════════════════════════════════
-let me=null;
-function hp(p){let h=0;for(let i=0;i<p.length;i++){h=((h<<5)-h)+p.charCodeAt(i);h|=0}return'h'+Math.abs(h).toString(36)}
-
-// email → username lookup
-function setEmailIdx(email,user){ db.set('email:'+email.toLowerCase(),{username:user}); }
-function getEmailIdx(email){ const r=db.get('email:'+email.toLowerCase()); return r?r.username:null; }
-
-function sendRegEmail(regEmail, username, total){
-  const subj=encodeURIComponent(`Servele new registration #${total}`);
-  const body=encodeURIComponent(`New Servele registration:\n\nUsername: ${username}\nEmail: ${regEmail}\nTotal registrants: ${total}\nTime: ${new Date().toUTCString()}`);
-  try{
-    const a=document.createElement('a');
-    a.href=`mailto:herring1209prb@gmail.com?subject=${subj}&body=${body}`;
-    a.style.display='none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(()=>document.body.removeChild(a),500);
-  }catch{}
+async function sbGet(t,f){
+  try{const r=await fetch(SB_URL+'/rest/v1/'+t+'?'+f,{headers:SBH});return r.ok?r.json():null;}catch{return null;}
+}
+async function sbPost(t,d){
+  try{const r=await fetch(SB_URL+'/rest/v1/'+t,{method:'POST',headers:{...SBH,'Prefer':'return=representation'},body:JSON.stringify(d)});return r.ok?r.json():null;}catch{return null;}
+}
+async function sbPatch(t,f,d){
+  try{const r=await fetch(SB_URL+'/rest/v1/'+t+'?'+f,{method:'PATCH',headers:{...SBH,'Prefer':'return=representation'},body:JSON.stringify(d)});return r.ok?r.json():null;}catch{return null;}
 }
 
-function doRegister(){
+// LOCAL STATS
+const SK='sv3';
+function emptyS(){return{solved:0,guesses:0,fastest:null,totalTime:0,streak:0,best:0,times:[],lastStreakDate:null};}
+const ld=()=>{try{const s=JSON.parse(localStorage.getItem(SK));if(!s)return emptyS();if(!('lastStreakDate'in s))s.lastStreakDate=null;return s;}catch{return emptyS();}};
+const sv=s=>localStorage.setItem(SK,JSON.stringify(s));
+
+function ptDateStr(ts){return new Date(ts??Date.now()).toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'});}
+function daysBetween(d1,d2){if(!d1||!d2)return Infinity;return Math.round((new Date(d1)-new Date(d2))/86400000);}
+function checkStreakOnLoad(){
+  const s=ld();
+  if(!s.streak||!s.lastStreakDate)return;
+  if(daysBetween(ptDateStr(),s.lastStreakDate)>1){s.streak=0;sv(s);updateHdr(s);}
+}
+
+// AUTH
+let me=null;
+function hp(p){let h=0;for(let i=0;i<p.length;i++){h=((h<<5)-h)+p.charCodeAt(i);h|=0;}return'h'+Math.abs(h).toString(36);}
+
+async function doRegister(){
   const email=$('re_email').value.trim().toLowerCase();
   const user=$('re_user').value.trim();
   const pass=$('re_pass').value;
   const pass2=$('re_pass2').value;
   const err=$('re_err'),ok=$('re_ok'),btn=$('re_btn');
   err.classList.remove('on');ok.classList.remove('on');
-
-  if(!email||!email.includes('@')||!email.includes('.')){showE(err,'Enter a valid email address.');return}
-  if(user.length<3||user.length>20){showE(err,'Username must be 3–20 characters.');return}
-  if(!/^[a-zA-Z0-9_]+$/.test(user)){showE(err,'Letters, numbers and underscores only.');return}
-  if(pass.length<6){showE(err,'Password must be at least 6 characters.');return}
-  if(pass!==pass2){showE(err,'Passwords do not match.');return}
-
-  if(db.get('u:'+user.toLowerCase())){showE(err,'Username already taken.');return}
-  if(getEmailIdx(email)){showE(err,'An account with that email already exists.');return}
-
-  const total = db.keys('u:').length + 1;
-  const ud = {username:user, email, passHash:hp(pass), createdAt:Date.now(), stats:emptyS()};
-  db.set('u:'+user.toLowerCase(), ud);
-  setEmailIdx(email, user);
-
-  sendRegEmail(email, user, total);
-
-  ok.textContent='✓ Account created!';ok.classList.add('on');
+  if(!email||!email.includes('@')||!email.includes('.')){showE(err,'Enter a valid email address.');return;}
+  if(user.length<3||user.length>20){showE(err,'Username must be 3-20 characters.');return;}
+  if(!/^[a-zA-Z0-9_]+$/.test(user)){showE(err,'Letters, numbers and underscores only.');return;}
+  if(pass.length<6){showE(err,'Password must be at least 6 characters.');return;}
+  if(pass!==pass2){showE(err,'Passwords do not match.');return;}
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
+  const exU=await sbGet('users','username=eq.'+encodeURIComponent(user)+'&select=username');
+  if(exU&&exU.length){btn.disabled=false;btn.textContent='Create Account';showE(err,'Username already taken.');return;}
+  const exE=await sbGet('email_index','email=eq.'+encodeURIComponent(email)+'&select=email');
+  if(exE&&exE.length){btn.disabled=false;btn.textContent='Create Account';showE(err,'Email already registered.');return;}
+  const all=await sbGet('users','select=username');
+  const total=(all?all.length:0)+1;
+  const stats=emptyS();
+  const ins=await sbPost('users',{username:user,email:email,pass_hash:hp(pass),stats:stats});
+  if(!ins||!ins.length){btn.disabled=false;btn.textContent='Create Account';showE(err,'Registration failed - please try again.');return;}
+  await sbPost('email_index',{email:email,username:user});
+  sendRegEmail(email,user,total);
   btn.disabled=false;btn.textContent='Create Account';
-  setTimeout(()=>{ signIn(ud); closeMo('authMo'); toast('Welcome to Servele, '+user+'! 🎾'); }, 700);
+  ok.textContent='Account created!';ok.classList.add('on');
+  setTimeout(()=>{signIn({username:user,email:email,stats:stats});closeMo('authMo');toast('Welcome to Servele, '+user+'!');},700);
 }
 
-function doLogin(){
+async function doLogin(){
   const email=$('li_email').value.trim().toLowerCase();
   const pass=$('li_pass').value;
   const err=$('li_err'),btn=$('li_btn');
   err.classList.remove('on');
-  if(!email||!pass){showE(err,'Enter your email and password.');return}
-  if(!email.includes('@')){showE(err,'Enter a valid email address.');return}
-
-  const username=getEmailIdx(email);
-  if(!username){showE(err,'No account found with that email.');return}
-
-  const ud=db.get('u:'+username.toLowerCase());
-  if(!ud||ud.passHash!==hp(pass)){showE(err,'Incorrect password.');return}
-
-  signIn(ud);
+  if(!email||!pass){showE(err,'Enter your email and password.');return;}
+  if(!email.includes('@')){showE(err,'Enter a valid email address.');return;}
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
+  const idx=await sbGet('email_index','email=eq.'+encodeURIComponent(email)+'&select=username');
+  if(!idx||!idx.length){btn.disabled=false;btn.textContent='Sign In';showE(err,'No account found with that email.');return;}
+  const rows=await sbGet('users','username=eq.'+encodeURIComponent(idx[0].username));
+  if(!rows||!rows.length||rows[0].pass_hash!==hp(pass)){btn.disabled=false;btn.textContent='Sign In';showE(err,'Incorrect password.');return;}
+  btn.disabled=false;btn.textContent='Sign In';
+  signIn({username:rows[0].username,email:rows[0].email,stats:rows[0].stats||emptyS()});
   closeMo('authMo');
-  toast('Welcome back, '+ud.username+'! 🎾');
+  toast('Welcome back, '+rows[0].username+'!');
 }
 
 function signIn(ud){
@@ -206,46 +189,38 @@ function signIn(ud){
   $('acctBtn').classList.remove('guest');
   $('acctAvatar').textContent=ud.username[0].toUpperCase();
   $('acctLabel').textContent=ud.username;
-
-  // Merge: take the better of guest local stats and cloud stats
-  const local=ld();
-  const cloud=ud.stats||emptyS();
+  const local=ld(),cloud=ud.stats||emptyS();
   const merged={
-    solved:    Math.max(local.solved,   cloud.solved),
-    guesses:   local.guesses>0 ? local.guesses : cloud.guesses,
-    fastest:   local.fastest!==null && cloud.fastest!==null ? Math.min(local.fastest,cloud.fastest)
-               : local.fastest??cloud.fastest,
-    totalTime: Math.max(local.totalTime, cloud.totalTime),
-    streak:    Math.max(local.streak,   cloud.streak),
-    best:      Math.max(local.best,     cloud.best),
-    times:     cloud.times.length>=local.times.length ? cloud.times : local.times,
-    lastStreakDate: local.lastStreakDate||cloud.lastStreakDate
+    solved:Math.max(local.solved,cloud.solved),
+    guesses:local.guesses>0?local.guesses:cloud.guesses,
+    fastest:local.fastest!==null&&cloud.fastest!==null?Math.min(local.fastest,cloud.fastest):(local.fastest??cloud.fastest),
+    totalTime:Math.max(local.totalTime,cloud.totalTime),
+    streak:Math.max(local.streak,cloud.streak),
+    best:Math.max(local.best,cloud.best),
+    times:cloud.times.length>=local.times.length?cloud.times:local.times,
+    lastStreakDate:local.lastStreakDate||cloud.lastStreakDate
   };
-  sv(merged);
-  updateHdr(merged);
+  sv(merged);updateHdr(merged);
 }
 
-function doLogout(){
-  syncCloud();
-  me=null;
-  localStorage.removeItem('sv_sess');
-  $('acctBtn').classList.add('guest');
-  $('acctAvatar').textContent='?';
-  $('acctLabel').textContent='Sign In';
-  closeMo('authMo');
-  toast('Signed out. Stats saved.');
+async function doLogout(){
+  await syncCloud();me=null;localStorage.removeItem('sv_sess');
+  $('acctBtn').classList.add('guest');$('acctAvatar').textContent='?';$('acctLabel').textContent='Sign In';
+  closeMo('authMo');toast('Signed out. Stats saved.');
 }
 
-function syncCloud(){
+async function syncCloud(){
   if(!me)return;
-  const ud=db.get('u:'+me.username.toLowerCase());
-  if(!ud)return;
-  ud.stats=ld();
-  ud.lastSync=Date.now();
-  db.set('u:'+me.username.toLowerCase(),ud);
+  await sbPatch('users','username=eq.'+encodeURIComponent(me.username),{stats:ld()});
 }
 
-function showE(el,msg){el.textContent=msg;el.classList.add('on')}
+function sendRegEmail(regEmail,username,total){
+  const subj=encodeURIComponent('Servele new registration #'+total);
+  const body=encodeURIComponent('New Servele registration:\n\nUsername: '+username+'\nEmail: '+regEmail+'\nTotal registrants: '+total+'\nTime: '+new Date().toUTCString());
+  try{const a=document.createElement('a');a.href='mailto:herring1209prb@gmail.com?subject='+subj+'&body='+body;a.style.display='none';document.body.appendChild(a);a.click();setTimeout(()=>document.body.removeChild(a),500);}catch{}
+}
+
+function showE(el,msg){el.textContent=msg;el.classList.add('on');}
 function switchTab(t){
   $('formLogin').style.display=t==='login'?'flex':'none';
   $('formReg').style.display=t==='register'?'flex':'none';
@@ -259,34 +234,29 @@ function openAuth(){
     $('authForms').style.display='none';$('authIn').style.display='block';
     $('profAv').textContent=me.username[0].toUpperCase();
     $('profName').textContent=me.username;$('profEmail').textContent=me.email;
-    const s=ld(),avg=s.solved>0?(s.guesses/s.solved).toFixed(1):'—';
-    $('profStats').innerHTML=[[s.solved,'Solved'],[avg,'Avg Guesses'],[s.streak,'Streak'],[s.fastest!==null?fmt(s.fastest):'—','Fastest']].map(([v,l])=>`<div class="sc"><div class="scv">${v}</div><div class="scl">${l}</div></div>`).join('');
-  }else{$('authForms').style.display='block';$('authIn').style.display='none';switchTab('login')}
+    const s=ld(),avg=s.solved>0?(s.guesses/s.solved).toFixed(1):'--';
+    $('profStats').innerHTML=[[s.solved,'Solved'],[avg,'Avg Guesses'],[s.streak,'Streak'],[s.fastest!==null?fmt(s.fastest):'--','Fastest']].map(([v,l])=>'<div class="sc"><div class="scv">'+v+'</div><div class="scl">'+l+'</div></div>').join('');
+  }else{$('authForms').style.display='block';$('authIn').style.display='none';switchTab('login');}
   openMo('authMo');
 }
 
-// ═══════════════════════════════════════════════════════════════
 // LEADERBOARD
-// ═══════════════════════════════════════════════════════════════
 let lbMetric='solved';
-function openLb(){openMo('lbMo');loadLb(lbMetric)}
-function switchLb(el,m){
-  document.querySelectorAll('.lb-tab').forEach(t=>t.classList.remove('on'));
-  el.classList.add('on');lbMetric=m;loadLb(m);
-}
-function loadLb(m){
+function openLb(){openMo('lbMo');loadLb(lbMetric);}
+function switchLb(el,m){document.querySelectorAll('.lb-tab').forEach(t=>t.classList.remove('on'));el.classList.add('on');lbMetric=m;loadLb(m);}
+
+async function loadLb(m){
   const c=$('lbContent');
-  const keys=db.keys('u:');
-  if(!keys.length){c.innerHTML='<div class="lb-empty">No players yet. Be the first! 🎾</div>';return}
-  const users=[];
-  for(const k of keys){const u=db.get(k);if(u&&u.stats&&u.username)users.push(u)}
-  if(!users.length){c.innerHTML='<div class="lb-empty">No stats yet.</div>';return}
-  const sorted=[...users].sort((a,b)=>{
+  c.innerHTML='<div class="lb-loading"><span class="spinner"></span></div>';
+  const users=await sbGet('users','select=username,stats');
+  if(!users||!users.length){c.innerHTML='<div class="lb-empty">No players yet. Be the first!</div>';return;}
+  const valid=users.filter(u=>u.stats&&u.username);
+  const sorted=[...valid].sort((a,b)=>{
     const sa=a.stats,sb=b.stats;
     if(m==='solved')return(sb.solved||0)-(sa.solved||0);
     if(m==='streak')return(sb.best||0)-(sa.best||0);
-    if(m==='avg'){const aa=sa.solved>0?sa.guesses/sa.solved:999;const ab=sb.solved>0?sb.guesses/sb.solved:999;return aa-ab}
-    if(m==='fast'){const fa=sa.fastest!==null?sa.fastest:999999;const fb=sb.fastest!==null?sb.fastest:999999;return fa-fb}
+    if(m==='avg'){const aa=sa.solved>0?sa.guesses/sa.solved:999;const ab=sb.solved>0?sb.guesses/sb.solved:999;return aa-ab;}
+    if(m==='fast'){const fa=sa.fastest!==null?sa.fastest:999999;const fb=sb.fastest!==null?sb.fastest:999999;return fa-fb;}
     return 0;
   }).slice(0,50);
   const labels={solved:'Solved',streak:'Best Streak',avg:'Avg Guesses',fast:'Fastest'};
@@ -297,70 +267,20 @@ function loadLb(m){
     let val;
     if(m==='solved')val=s.solved||0;
     else if(m==='streak')val=s.best||0;
-    else if(m==='avg')val=s.solved>0?(s.guesses/s.solved).toFixed(1):'—';
-    else val=s.fastest!==null?fmt(s.fastest):'—';
-    return`<div class="lb-row${isYou?' you':''}">
-      <div class="rank-num ${rc}">${rn}</div>
-      <div class="lb-name">${esc(u.username)}${isYou?'<span class="you-chip">you</span>':''}</div>
-      <div class="lb-val">${val}</div>
-    </div>`;
+    else if(m==='avg')val=s.solved>0?(s.guesses/s.solved).toFixed(1):'--';
+    else val=s.fastest!==null?fmt(s.fastest):'--';
+    return '<div class="lb-row'+(isYou?' you':'')+'"><div class="rank-num '+rc+'">'+rn+'</div><div class="lb-name">'+esc(u.username)+(isYou?'<span class="you-chip">you</span>':'')+'</div><div class="lb-val">'+val+'</div></div>';
   }).join('');
-  c.innerHTML=`<div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);padding:6px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span>Player</span><span>${labels[m]}</span></div>`+rows;
+  c.innerHTML='<div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);padding:6px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span>Player</span><span>'+labels[m]+'</span></div>'+rows;
 }
-function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-// ═══════════════════════════════════════════════════════════════
-// LOCAL STATS
-// ═══════════════════════════════════════════════════════════════
-const SK='sv3';
-function emptyS(){return{solved:0,guesses:0,fastest:null,totalTime:0,streak:0,best:0,times:[],lastStreakDate:null}}
-const ld=()=>{
-  try{
-    const s=JSON.parse(localStorage.getItem(SK));
-    if(!s) return emptyS();
-    // Back-fill lastStreakDate if missing (old saves)
-    if(!('lastStreakDate' in s)) s.lastStreakDate=null;
-    return s;
-  }catch{return emptyS();}
-};
-const sv=s=>localStorage.setItem(SK,JSON.stringify(s));
-
-// Get current PT date string "YYYY-MM-DD" — streak resets at midnight PT
-function ptDateStr(ts){
-  const d=new Date(ts??Date.now());
-  // Format in America/Los_Angeles timezone
-  return d.toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'}); // en-CA gives YYYY-MM-DD
-}
-
-// Returns days between two PT date strings (negative = date1 is after date2)
-function daysBetween(d1,d2){
-  if(!d1||!d2) return Infinity;
-  const ms=new Date(d1).getTime()-new Date(d2).getTime();
-  return Math.round(ms/86400000);
-}
-
-// Called on app load — reset streak if player missed a day
-function checkStreakOnLoad(){
-  const s=ld();
-  if(!s.streak||!s.lastStreakDate) return; // no streak to check
-  const today=ptDateStr();
-  const gap=daysBetween(today,s.lastStreakDate);
-  if(gap>1){
-    // Missed at least one day — reset streak
-    s.streak=0;
-    sv(s);
-    updateHdr(s);
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
 // GAME
-// ═══════════════════════════════════════════════════════════════
 let mystery=null,guesses=[],iv=null,t0=null,elapsed=0,won=false,aidx=-1,egrid=[];
 
-function startT(){clearInterval(iv);t0=Date.now();elapsed=0;iv=setInterval(()=>{elapsed=Math.floor((Date.now()-t0)/1000);const s=fmt(elapsed);$('tdisp').textContent=s;$('ft').textContent=s},1000)}
-function stopT(){clearInterval(iv);iv=null;elapsed=Math.floor((Date.now()-t0)/1000);return elapsed}
-function fmt(s){return`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`}
+function startT(){clearInterval(iv);t0=Date.now();elapsed=0;iv=setInterval(()=>{elapsed=Math.floor((Date.now()-t0)/1000);const s=fmt(elapsed);$('tdisp').textContent=s;$('ft').textContent=s;},1000);}
+function stopT(){clearInterval(iv);iv=null;elapsed=Math.floor((Date.now()-t0)/1000);return elapsed;}
+function fmt(s){return Math.floor(s/60)+':'+(s%60<10?'0':'')+(s%60);}
 
 function newGame(){
   mystery=ALL[Math.floor(Math.random()*ALL.length)];
@@ -369,28 +289,20 @@ function newGame(){
   const inp=$('inp');inp.value='';inp.disabled=false;
   ['gcount','fg'].forEach(id=>$(id).textContent='0');
   ['tdisp','ft'].forEach(id=>$(id).textContent='0:00');
-  $('succ').classList.remove('on');
-  $('acdrop').classList.remove('open');aidx=-1;
-  // Scroll to top
+  $('succ').classList.remove('on');$('acdrop').classList.remove('open');aidx=-1;
   $('scrollArea').scrollTop=0;
 }
 
 function evalP(p){
   const m=mystery,cells=[];
-  // Nationality
   cells.push({lbl:'Country',type:p.nat===m.nat?'ok':'no',val:p.nat});
-  // Rank
   const rd=Math.abs(p.rank-m.rank);
-  cells.push({lbl:'Ranking',type:p.rank===m.rank?'ok':rd<=20?'cl':'no',val:`#${p.rank}`,arrow:p.rank===m.rank?'':p.rank>m.rank?'⬆':'⬇'});
-  // Age
+  cells.push({lbl:'Ranking',type:p.rank===m.rank?'ok':rd<=20?'cl':'no',val:'#'+p.rank,arrow:p.rank===m.rank?'':p.rank>m.rank?'up':'dn'});
   const ad=Math.abs(p.age-m.age);
-  cells.push({lbl:'Age',type:p.age===m.age?'ok':ad<=2?'cl':'no',val:`${p.age}`,arrow:p.age===m.age?'':p.age>m.age?'⬇':'⬆'});
-  // Titles
+  cells.push({lbl:'Age',type:p.age===m.age?'ok':ad<=2?'cl':'no',val:''+p.age,arrow:p.age===m.age?'':p.age>m.age?'dn':'up'});
   const td=Math.abs(p.titles-m.titles);
-  cells.push({lbl:'Titles',type:p.titles===m.titles?'ok':td<=3?'cl':'no',val:`${p.titles}`,arrow:p.titles===m.titles?'':p.titles>m.titles?'⬇':'⬆'});
-  // Hand
+  cells.push({lbl:'Titles',type:p.titles===m.titles?'ok':td<=3?'cl':'no',val:''+p.titles,arrow:p.titles===m.titles?'':p.titles>m.titles?'dn':'up'});
   cells.push({lbl:'Hand',type:p.hand===m.hand?'ok':'no',val:p.hand});
-  // Backhand
   cells.push({lbl:'Backhand',type:p.bh===m.bh?'ok':'no',val:p.bh==='Two-handed'?'2HBH':'1HBH'});
   return cells;
 }
@@ -399,242 +311,150 @@ function guess(name){
   if(won)return;
   const p=ALL.find(x=>x.name.toLowerCase()===name.toLowerCase());
   if(!p)return;
-  if(guesses.find(g=>g.p.name===p.name)){toast('Already guessed!');return}
+  if(guesses.find(g=>g.p.name===p.name)){toast('Already guessed!');return;}
   const cells=evalP(p);
-  guesses.push({p,cells});
+  guesses.push({p:p,cells:cells});
   egrid.push(cells.map(c=>c.type==='ok'?'🟩':c.type==='cl'?'🟨':'⬜').join(''));
   ['gcount','fg'].forEach(id=>$(id).textContent=guesses.length);
   render();
   if(p.name===mystery.name)onWin();
 }
 
-function onWin(){
-  won=true;
-  const e=stopT();
-  $('inp').disabled=true;
-  const s=ld();
-  const today=ptDateStr();
-
-  s.solved++;
-  s.guesses+=guesses.length;
-  s.totalTime+=e;
-  if(s.fastest===null||e<s.fastest) s.fastest=e;
+async function onWin(){
+  won=true;const e=stopT();$('inp').disabled=true;
+  const s=ld();const today=ptDateStr();
+  s.solved++;s.guesses+=guesses.length;s.totalTime+=e;
+  if(s.fastest===null||e<s.fastest)s.fastest=e;
   s.times.push(e);
-
-  // Daily streak logic:
-  // - If no previous streak date, or last was yesterday → extend streak
-  // - If already solved today → don't change streak (still counts solved/guesses)
-  // - If missed a day → reset to 1
   const gap=daysBetween(today,s.lastStreakDate);
-  if(s.lastStreakDate===null||gap>=2){
-    // First ever solve, or missed a day
-    s.streak=1;
-  } else if(gap===1){
-    // Last solve was yesterday — extend
-    s.streak++;
-  }
-  // gap===0 means already solved today — streak unchanged
+  if(s.lastStreakDate===null||gap>=2)s.streak=1;
+  else if(gap===1)s.streak++;
   s.lastStreakDate=today;
-
-  if(s.streak>s.best) s.best=s.streak;
-
+  if(s.streak>s.best)s.best=s.streak;
   sv(s);updateHdr(s);
-  if(me) syncCloud();
-
-  const msgs=['Ace! ⚡','Perfect!','Brilliant!','Excellent!','Well done!','Got it!'];
+  if(me)syncCloud();
+  const msgs=['Ace!','Perfect!','Brilliant!','Excellent!','Well done!','Got it!'];
   $('se').textContent=guesses.length===1?'🏆':guesses.length<=3?'🎾':'✅';
   $('stitle').textContent=msgs[Math.min(guesses.length-1,msgs.length-1)];
-  $('ssub').textContent=`You found ${mystery.name} in ${guesses.length} ${guesses.length===1?'guess':'guesses'}!`;
-  $('sg').textContent=guesses.length;
-  $('stm').textContent=fmt(e);
-  $('ssk').textContent=s.streak;
-  $('succ').classList.add('on');
-  $('scrollArea').scrollTop=0;
+  $('ssub').textContent='You found '+mystery.name+' in '+guesses.length+(guesses.length===1?' guess!'>' guesses!');
+  $('sg').textContent=guesses.length;$('stm').textContent=fmt(e);$('ssk').textContent=s.streak;
+  $('succ').classList.add('on');$('scrollArea').scrollTop=0;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// RENDER — card layout
-// ═══════════════════════════════════════════════════════════════
+// RENDER
 function render(){
   const c=$('rows');
-  if(!guesses.length){
-    c.innerHTML='<div class="empty"><div class="empty-i">🎾</div><div class="empty-t">Guess an ATP player</div><div class="empty-s">Type a name in the search bar above</div></div>';
-    return;
-  }
+  if(!guesses.length){c.innerHTML='<div class="empty"><div class="empty-i">🎾</div><div class="empty-t">Guess an ATP player</div><div class="empty-s">Type a name in the search bar above</div></div>';return;}
   c.innerHTML='';
-  // Newest first so you can see the latest without scrolling down
-  [...guesses].reverse().forEach(({p,cells})=>{
+  [...guesses].reverse().forEach(function(g){
+    const p=g.p,cells=g.cells;
     const card=document.createElement('div');card.className='guess-card';
-    card.innerHTML=`
-      <div class="card-name">
-        <span class="card-name-text">${p.name}</span>
-        <span class="card-rank-badge">#${p.rank}</span>
-      </div>
-      <div class="card-attrs">
-        ${cells.map(cell=>`
-          <div class="attr-tile ${cell.type}">
-            <div class="attr-label">${cell.lbl}</div>
-            <div class="attr-val">${cell.val}</div>
-            ${cell.arrow?`<div class="attr-arrow">${cell.arrow}</div>`:''}
-          </div>`).join('')}
-      </div>`;
+    const arrowChar={up:'⬆',dn:'⬇','':{toString:()=>''}};
+    card.innerHTML='<div class="card-name"><span class="card-name-text">'+p.name+'</span><span class="card-rank-badge">#'+p.rank+'</span></div><div class="card-attrs">'+
+      cells.map(function(cell){
+        const arrow=cell.arrow==='up'?'⬆':cell.arrow==='dn'?'⬇':'';
+        return '<div class="attr-tile '+cell.type+'"><div class="attr-label">'+cell.lbl+'</div><div class="attr-val">'+cell.val+'</div>'+(arrow?'<div class="attr-arrow">'+arrow+'</div>':'')+'</div>';
+      }).join('')+'</div>';
     c.appendChild(card);
   });
 }
 
-// ═══════════════════════════════════════════════════════════════
 // AUTOCOMPLETE
-// ═══════════════════════════════════════════════════════════════
 function updateAC(q){
   const ac=$('acdrop');
-  if(!q.trim()){ac.classList.remove('open');aidx=-1;return}
+  if(!q.trim()){ac.classList.remove('open');aidx=-1;return;}
   const ql=q.toLowerCase();
-  const hits=ALL.filter(p=>p.name.toLowerCase().includes(ql)).slice(0,7);
-  if(!hits.length){ac.classList.remove('open');return}
-  ac.innerHTML=hits.map((p,i)=>`<div class="aci" data-n="${p.name}" data-i="${i}">
-    <span class="acr">#${p.rank}</span>
-    <span class="acn">${hl(p.name,ql)}</span>
-    <span class="acp">${p.nat}</span>
-  </div>`).join('');
+  const hits=ALL.filter(function(p){return p.name.toLowerCase().indexOf(ql)>=0;}).slice(0,7);
+  if(!hits.length){ac.classList.remove('open');return;}
+  ac.innerHTML=hits.map(function(p,i){return '<div class="aci" data-n="'+p.name+'" data-i="'+i+'"><span class="acr">#'+p.rank+'</span><span class="acn">'+hl(p.name,ql)+'</span><span class="acp">'+p.nat+'</span></div>';}).join('');
   ac.classList.add('open');aidx=-1;
-  ac.querySelectorAll('.aci').forEach(it=>it.addEventListener('mousedown',e=>{e.preventDefault();pick(it.dataset.n)}));
+  ac.querySelectorAll('.aci').forEach(function(it){it.addEventListener('mousedown',function(e){e.preventDefault();pick(it.dataset.n);});});
 }
-function hl(name,q){const i=name.toLowerCase().indexOf(q);if(i<0)return name;return name.slice(0,i)+`<strong>${name.slice(i,i+q.length)}</strong>`+name.slice(i+q.length)}
-function pick(name){
-  const inp=$('inp');
-  inp.value='';
-  $('acdrop').classList.remove('open');
-  aidx=-1;
-  inp.blur(); // dismiss keyboard on mobile
-  guess(name);
-}
+function hl(name,q){const i=name.toLowerCase().indexOf(q);if(i<0)return name;return name.slice(0,i)+'<strong>'+name.slice(i,i+q.length)+'</strong>'+name.slice(i+q.length);}
+function pick(name){$('inp').value='';$('acdrop').classList.remove('open');aidx=-1;$('inp').blur();guess(name);}
 
-// ═══════════════════════════════════════════════════════════════
-// STATS MODAL
-// ═══════════════════════════════════════════════════════════════
+// STATS
 function openStats(){
   const s=ld();
-  const avg=s.solved>0?(s.guesses/s.solved).toFixed(1):'—';
-  const avgt=s.times.length>0?fmt(Math.round(s.times.reduce((a,b)=>a+b,0)/s.times.length)):'—';
-  $('sgrid').innerHTML=[[s.solved,'Puzzles Solved'],[avg,'Avg Guesses'],[s.fastest!==null?fmt(s.fastest):'—','Fastest Solve'],[avgt,'Avg Time'],[s.streak,'Streak'],[s.best,'Best Streak'],[s.guesses,'Total Guesses'],[fmt(s.totalTime),'Time Played']].map(([v,l])=>`<div class="sc"><div class="scv">${v}</div><div class="scl">${l}</div></div>`).join('');
+  const avg=s.solved>0?(s.guesses/s.solved).toFixed(1):'--';
+  const avgt=s.times.length>0?fmt(Math.round(s.times.reduce(function(a,b){return a+b;},0)/s.times.length)):'--';
+  $('sgrid').innerHTML=[[s.solved,'Puzzles Solved'],[avg,'Avg Guesses'],[s.fastest!==null?fmt(s.fastest):'--','Fastest Solve'],[avgt,'Avg Time'],[s.streak,'Streak'],[s.best,'Best Streak'],[s.guesses,'Total Guesses'],[fmt(s.totalTime),'Time Played']].map(function(x){return '<div class="sc"><div class="scv">'+x[0]+'</div><div class="scl">'+x[1]+'</div></div>';}).join('');
   openMo('statsMo');
 }
-function updateHdr(s){$('streak').textContent=s.streak;$('solved').textContent=s.solved}
+function updateHdr(s){$('streak').textContent=s.streak;$('solved').textContent=s.solved;}
 
-// ═══════════════════════════════════════════════════════════════
-// SHARE
-// ═══════════════════════════════════════════════════════════════
 function doShare(){
-  const txt=[`🎾 Servele — Top 100`,`${guesses.length} guess${guesses.length!==1?'es':''} · ${fmt(elapsed)}`,'', ...egrid,'','servele.game'].join('\n');
-  if(navigator.clipboard){navigator.clipboard.writeText(txt).then(()=>toast('Copied! 📋'))}
-  else{toast('Copy not supported')}
+  const txt='🎾 Servele -- Top 100\n'+guesses.length+(guesses.length===1?' guess':' guesses')+' · '+fmt(elapsed)+'\n\n'+egrid.join('\n')+'\n\nservele.game';
+  if(navigator.clipboard)navigator.clipboard.writeText(txt).then(function(){toast('Copied!');});
+  else toast('Copy not supported');
 }
 
-// ═══════════════════════════════════════════════════════════════
-// MODAL HELPERS
-// ═══════════════════════════════════════════════════════════════
-function openMo(id){$(id).classList.add('open')}
-function closeMo(id){$(id).classList.remove('open')}
+function openMo(id){$(id).classList.add('open');}
+function closeMo(id){$(id).classList.remove('open');}
 
-// ═══════════════════════════════════════════════════════════════
-// TOAST
-// ═══════════════════════════════════════════════════════════════
 let ttm;
-function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('on');clearTimeout(ttm);ttm=setTimeout(()=>t.classList.remove('on'),2600)}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('on');clearTimeout(ttm);ttm=setTimeout(function(){t.classList.remove('on');},2600);}
 
-// ═══════════════════════════════════════════════════════════════
-// DARK MODE
-// ═══════════════════════════════════════════════════════════════
 function toggleDark(){
   const el=document.documentElement;
-  if(el.hasAttribute('data-dark')){el.removeAttribute('data-dark');$('darkBtn').textContent='🌙';localStorage.setItem('sv_dark','0')}
-  else{el.setAttribute('data-dark','');$('darkBtn').textContent='☀️';localStorage.setItem('sv_dark','1')}
+  if(el.hasAttribute('data-dark')){el.removeAttribute('data-dark');$('darkBtn').textContent='🌙';localStorage.setItem('sv_dark','0');}
+  else{el.setAttribute('data-dark','');$('darkBtn').textContent='☀️';localStorage.setItem('sv_dark','1');}
 }
 
-// ═══════════════════════════════════════════════════════════════
-// UTIL
-// ═══════════════════════════════════════════════════════════════
-function $(id){return document.getElementById(id)}
+function $(id){return document.getElementById(id);}
 
-// ═══════════════════════════════════════════════════════════════
 // INIT
-// ═══════════════════════════════════════════════════════════════
-function init(){
-  if(localStorage.getItem('sv_dark')==='1'){document.documentElement.setAttribute('data-dark','');$('darkBtn').textContent='☀️'}
+async function init(){
+  if(localStorage.getItem('sv_dark')==='1'){document.documentElement.setAttribute('data-dark','');$('darkBtn').textContent='☀️';}
 
-  // Restore session from localStorage
   try{
     const sess=JSON.parse(localStorage.getItem('sv_sess'));
     if(sess&&sess.username){
-      const ud=db.get('u:'+sess.username.toLowerCase());
-      if(ud&&ud.passHash){
-        signIn(ud);
-      } else {
+      const rows=await sbGet('users','username=eq.'+encodeURIComponent(sess.username));
+      if(rows&&rows.length){
+        signIn({username:rows[0].username,email:rows[0].email,stats:rows[0].stats||emptyS()});
+      }else{
         localStorage.removeItem('sv_sess');
       }
     }
   }catch(e){}
 
-  // Check if streak should be reset (missed a day)
   checkStreakOnLoad();
-
   updateHdr(ld());
 
-  // Events
   $('darkBtn').addEventListener('click',toggleDark);
   $('statsBtn').addEventListener('click',openStats);
   $('lbBtn').addEventListener('click',openLb);
   $('acctBtn').addEventListener('click',openAuth);
-  $('authClose').addEventListener('click',()=>closeMo('authMo'));
+  $('authClose').addEventListener('click',function(){closeMo('authMo');});
   $('logoutBtn').addEventListener('click',doLogout);
-  $('resetSt').addEventListener('click',()=>{
-    if(confirm('Reset all stats?')){
-      sv(emptyS());
-      if(me) syncCloud();
-      openStats();
-      updateHdr(ld());
-    }
-  });
+  $('resetSt').addEventListener('click',function(){if(confirm('Reset all stats?')){sv(emptyS());if(me)syncCloud();openStats();updateHdr(ld());}});
 
-  // Close modals on backdrop tap
-  ['authMo','statsMo','lbMo'].forEach(id=>{
-    $(id).addEventListener('click',e=>{if(e.target===$(id))closeMo(id)});
-  });
+  ['authMo','statsMo','lbMo'].forEach(function(id){$(id).addEventListener('click',function(e){if(e.target===$(id))closeMo(id);});});
 
-  // New puzzle
-  $('newBtn').addEventListener('click',()=>{
-    if(!won&&guesses.length>0){if(!confirm('Abandon this puzzle?'))return}
-    newGame();
-  });
+  $('newBtn').addEventListener('click',function(){if(!won&&guesses.length>0){if(!confirm('Abandon this puzzle?'))return;}newGame();});
   $('nextBtn').addEventListener('click',newGame);
   $('shareBtn').addEventListener('click',doShare);
 
-  // Search input
   const inp=$('inp');
-  inp.addEventListener('input',()=>updateAC(inp.value));
-  inp.addEventListener('keydown',e=>{
+  inp.addEventListener('input',function(){updateAC(inp.value);});
+  inp.addEventListener('keydown',function(e){
     const items=document.querySelectorAll('.aci');
-    if(e.key==='ArrowDown'){e.preventDefault();aidx=Math.min(aidx+1,items.length-1);items.forEach((it,i)=>it.classList.toggle('foc',i===aidx));if(items[aidx])inp.value=items[aidx].dataset.n}
-    else if(e.key==='ArrowUp'){e.preventDefault();aidx=Math.max(aidx-1,0);items.forEach((it,i)=>it.classList.toggle('foc',i===aidx));if(items[aidx])inp.value=items[aidx].dataset.n}
-    else if(e.key==='Enter'){e.preventDefault();if(aidx>=0&&items[aidx]){pick(items[aidx].dataset.n)}else{const q=inp.value.trim().toLowerCase();const m=ALL.find(p=>p.name.toLowerCase()===q);if(m)pick(m.name);else if(items.length>0)pick(items[0].dataset.n)}}
-    else if(e.key==='Escape'){$('acdrop').classList.remove('open');aidx=-1}
+    if(e.key==='ArrowDown'){e.preventDefault();aidx=Math.min(aidx+1,items.length-1);items.forEach(function(it,i){it.classList.toggle('foc',i===aidx);});if(items[aidx])inp.value=items[aidx].dataset.n;}
+    else if(e.key==='ArrowUp'){e.preventDefault();aidx=Math.max(aidx-1,0);items.forEach(function(it,i){it.classList.toggle('foc',i===aidx);});if(items[aidx])inp.value=items[aidx].dataset.n;}
+    else if(e.key==='Enter'){e.preventDefault();if(aidx>=0&&items[aidx]){pick(items[aidx].dataset.n);}else{const q=inp.value.trim().toLowerCase();const m=ALL.find(function(p){return p.name.toLowerCase()===q;});if(m)pick(m.name);else if(items.length>0)pick(items[0].dataset.n);}}
+    else if(e.key==='Escape'){$('acdrop').classList.remove('open');aidx=-1;}
   });
-  inp.addEventListener('focus',()=>{if(inp.value.trim())updateAC(inp.value)});
-  document.addEventListener('click',e=>{if(!e.target.closest('.search-area')){$('acdrop').classList.remove('open');aidx=-1}});
+  inp.addEventListener('focus',function(){if(inp.value.trim())updateAC(inp.value);});
+  document.addEventListener('click',function(e){if(!e.target.closest('.search-area')){$('acdrop').classList.remove('open');aidx=-1;}});
 
-  // Auth enter keys
-  $('li_email').addEventListener('keydown',e=>{if(e.key==='Enter')$('li_pass').focus()});
-  $('li_pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
-  $('re_pass2').addEventListener('keydown',e=>{if(e.key==='Enter')doRegister()});
+  $('li_email').addEventListener('keydown',function(e){if(e.key==='Enter')$('li_pass').focus();});
+  $('li_pass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+  $('re_pass2').addEventListener('keydown',function(e){if(e.key==='Enter')doRegister();});
 
   newGame();
 }
 
 document.addEventListener('DOMContentLoaded',init);
 
-// Register service worker for PWA offline support
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  });
-}
+if('serviceWorker'in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}

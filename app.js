@@ -446,6 +446,16 @@ function $(id){return document.getElementById(id);}
 async function init(){
   if(localStorage.getItem('sv_dark')==='1'){document.documentElement.setAttribute('data-dark','');$('darkBtn').textContent='☀️';}
 
+  // Wipe any stale keys from old versions of the app
+  ['sv3','sv_v3','servele_v3','servele_stats','servele_stats_v2','sv_shared_','sv_priv_'].forEach(function(k){
+    localStorage.removeItem(k);
+  });
+  // Also wipe any sv_db_ prefixed keys from old localStorage-auth version
+  Object.keys(localStorage).forEach(function(k){
+    if(k.startsWith('sv_db_')||k.startsWith('sv_shared_')||k.startsWith('sv_priv_')) localStorage.removeItem(k);
+  });
+
+  // Restore session — re-fetch fresh stats from Supabase
   try{
     const sess=JSON.parse(localStorage.getItem('sv_sess'));
     if(sess&&sess.username){
@@ -459,8 +469,7 @@ async function init(){
   }catch(e){}
 
   checkStreakOnLoad();
-  // Always show current stats (zeros for guest, real stats if signed in via signIn above)
-  updateHdr(ld());
+  updateHdr(ld()); // zeros for guest, real stats for signed-in user
 
   $('darkBtn').addEventListener('click',toggleDark);
   $('statsBtn').addEventListener('click',openStats);

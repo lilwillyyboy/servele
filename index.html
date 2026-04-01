@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Servele">
+<meta name="theme-color" content="#1a6b3c">
+<meta name="description" content="Guess the ATP tennis player — Wordle for tennis fans">
+<meta property="og:title" content="Servele Unlimited">
+<meta property="og:description" content="Guess the mystery ATP player using ranking, age, titles and more as clues.">
+<meta property="og:type" content="website">
+<title>Servele</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ═══ HEADER ═══════════════════════════════════════════════════ -->
+<header>
+  <div class="logo">Serve<em>le</em></div>
+  <div class="hctrl">
+    <button class="acct-chip guest" id="acctBtn">
+      <div class="avatar" id="acctAvatar">?</div>
+      <span id="acctLabel">Sign In</span>
+    </button>
+    <button class="ibtn" id="lbBtn">🏅</button>
+    <button class="ibtn" id="statsBtn">📊</button>
+    <button class="ibtn" id="darkBtn">🌙</button>
+  </div>
+</header>
+
+<!-- ═══ MINI STATUS ═══════════════════════════════════════════════ -->
+<div class="mini-status">
+  <div class="ms-item"><div class="ms-val" id="gcount">0</div><div class="ms-lbl">Guesses</div></div>
+  <div class="ms-item"><div class="ms-val" id="tdisp">0:00</div><div class="ms-lbl">Time</div></div>
+  <div class="ms-item"><div class="ms-val" id="streak">0</div><div class="ms-lbl">Streak</div></div>
+  <div class="ms-item"><div class="ms-val" id="solved">0</div><div class="ms-lbl">Solved</div></div>
+</div>
+
+<!-- ═══ SEARCH (sticky) ══════════════════════════════════════════ -->
+<div class="search-area">
+  <input type="text" class="sinp" id="inp"
+    placeholder="Search ATP player…"
+    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+    inputmode="search">
+  <span class="sico">🔍</span>
+  <div class="acdrop" id="acdrop"></div>
+</div>
+
+<!-- ═══ SCROLL AREA ══════════════════════════════════════════════ -->
+<div class="scroll-area" id="scrollArea">
+
+  <!-- SUCCESS PANEL -->
+  <div class="succ" id="succ">
+    <div class="se" id="se">🎾</div>
+    <div class="st" id="stitle">Brilliant!</div>
+    <div class="ss" id="ssub"></div>
+    <div class="sstats">
+      <div class="sstat"><div class="ssv" id="sg">-</div><div class="ssl">Guesses</div></div>
+      <div class="sstat"><div class="ssv" id="stm">-</div><div class="ssl">Time</div></div>
+      <div class="sstat"><div class="ssv" id="ssk">-</div><div class="ssl">Streak</div></div>
+    </div>
+    <div class="sact">
+      <button class="btn bp" id="nextBtn">⚡ Next</button>
+      <button class="btn bs" id="shareBtn">📋 Share</button>
+    </div>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <div class="li"><div class="ld c"></div>Correct</div>
+    <div class="li"><div class="ld w"></div>Close</div>
+    <div class="li"><div class="ld x"></div>Wrong</div>
+    <div style="font-size:11px;color:var(--text3)">↑↓ = direction</div>
+  </div>
+  <div class="rnote">Top 100 · Rankings 30 Mar 2026</div>
+
+  <!-- GUESS CARDS -->
+  <div id="rows">
+    <div class="empty">
+      <div class="empty-i">🎾</div>
+      <div class="empty-t">Guess an ATP player</div>
+      <div class="empty-s">Type a name in the search bar above</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══ BOTTOM BAR ════════════════════════════════════════════════ -->
+<div class="bottom-bar">
+  <div class="bb-info">
+    <div class="bb-item">🎯 <strong id="fg">0</strong></div>
+    <div class="bb-item">⏱ <strong id="ft">0:00</strong></div>
+  </div>
+  <button class="btn bs btn-sm" id="newBtn">New ↺</button>
+</div>
+
+<!-- ═══ AUTH MODAL ════════════════════════════════════════════════ -->
+<div class="mo" id="authMo">
+  <div class="md">
+    <div class="md-handle"></div>
+    <div class="mh">
+      <div class="mt">Account</div>
+      <button class="mc" id="authClose">✕</button>
+    </div>
+
+    <!-- Logged in -->
+    <div id="authIn" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+        <div id="profAv" style="width:44px;height:44px;border-radius:50%;background:var(--accent);color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0"></div>
+        <div>
+          <div style="font-weight:700;font-size:15px" id="profName"></div>
+          <div style="font-size:12px;color:var(--text3)" id="profEmail"></div>
+        </div>
+      </div>
+      <div class="sg" id="profStats"></div>
+      <button class="btn bs" id="logoutBtn" style="width:100%;justify-content:center">Sign Out</button>
+    </div>
+
+    <!-- Auth forms -->
+    <div id="authForms">
+      <div class="auth-tabs">
+        <button class="auth-tab on" id="tabLogin" onclick="switchTab('login')">Sign In</button>
+        <button class="auth-tab" id="tabReg" onclick="switchTab('register')">Register</button>
+      </div>
+      <div id="formLogin" class="frow">
+        <input class="finp" id="li_email" placeholder="Email address" type="email" autocomplete="email">
+        <input class="finp" id="li_pass" placeholder="Password" type="password" autocomplete="current-password">
+        <div class="ferr" id="li_err"></div>
+        <button class="btn bp" id="li_btn" onclick="doLogin()" style="width:100%;justify-content:center">Sign In</button>
+      </div>
+      <div id="formReg" class="frow" style="display:none">
+        <input class="finp" id="re_email" placeholder="Email address" type="email" autocomplete="email">
+        <input class="finp" id="re_user" placeholder="Username (3–20 chars)" autocomplete="username" autocapitalize="none">
+        <input class="finp" id="re_pass" placeholder="Password (min 6 chars)" type="password" autocomplete="new-password">
+        <input class="finp" id="re_pass2" placeholder="Confirm password" type="password" autocomplete="new-password">
+        <div class="ferr" id="re_err"></div>
+        <div class="fok" id="re_ok"></div>
+        <button class="btn bp" id="re_btn" onclick="doRegister()" style="width:100%;justify-content:center">Create Account</button>
+        <p style="font-size:12px;color:var(--text3);text-align:center;margin-top:4px">Stats sync across devices when signed in.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ STATS MODAL ═══════════════════════════════════════════════ -->
+<div class="mo" id="statsMo">
+  <div class="md">
+    <div class="md-handle"></div>
+    <div class="mh">
+      <div class="mt">Statistics</div>
+      <button class="mc" onclick="closeMo('statsMo')">✕</button>
+    </div>
+    <div class="sg" id="sgrid"></div>
+    <button class="btn bs" id="resetSt" style="width:100%;justify-content:center">Reset Statistics</button>
+  </div>
+</div>
+
+<!-- ═══ LEADERBOARD MODAL ════════════════════════════════════════ -->
+<div class="mo" id="lbMo">
+  <div class="md">
+    <div class="md-handle"></div>
+    <div class="mh">
+      <div class="mt">🏅 Leaderboard</div>
+      <button class="mc" onclick="closeMo('lbMo')">✕</button>
+    </div>
+    <div class="lb-tabs">
+      <button class="lb-tab on" onclick="switchLb(this,'solved')">Most Solved</button>
+      <button class="lb-tab" onclick="switchLb(this,'streak')">Best Streak</button>
+      <button class="lb-tab" onclick="switchLb(this,'avg')">Avg Guesses</button>
+      <button class="lb-tab" onclick="switchLb(this,'fast')">Fastest</button>
+    </div>
+    <div id="lbContent"><div class="lb-loading"><span class="spinner"></span></div></div>
+    <p style="font-size:12px;color:var(--text3);text-align:center;margin-top:14px">Sign in to appear. Top 50 shown.</p>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

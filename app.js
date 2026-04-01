@@ -118,17 +118,47 @@ async function sbPatch(t,f,d){
   try{const r=await fetch(SB_URL+'/rest/v1/'+t+'?'+f,{method:'PATCH',headers:{...SBH,'Prefer':'return=representation'},body:JSON.stringify(d)});return r.ok?r.json():null;}catch{return null;}
 }
 
-// LOCAL STATS
-const SK='sv3';
+// ═══════════════════════════════════════════════════════════════
+// STATS — per-user localStorage cache, Supabase is source of truth
+// Guest players see zeros and stats are never saved without an account
+// ═══════════════════════════════════════════════════════════════
 function emptyS(){return{solved:0,guesses:0,fastest:null,totalTime:0,streak:0,best:0,times:[],lastStreakDate:null};}
-const ld=()=>{try{const s=JSON.parse(localStorage.getItem(SK));if(!s)return emptyS();if(!('lastStreakDate'in s))s.lastStreakDate=null;return s;}catch{return emptyS();}};
-const sv=s=>localStorage.setItem(SK,JSON.stringify(s));
+
+// Stats key is per-username so two accounts on same browser never share data
+function statsKey(){ return me ? 'sv_stats_'+me.username : null; }
+
+// Load stats — returns empty if guest or no data
+function ld(){
+  const k = statsKey();
+  if(!k) return emptyS();
+  try{
+    const s = JSON.parse(localStorage.getItem(k));
+    if(!s) return emptyS();
+    if(!('lastStreakDate' in s)) s.lastStreakDate = null;
+    return s;
+  }catch{ return emptyS(); }
+}
+
+// Save stats — only saves if signed in
+function sv(s){
+  const k = statsKey();
+  if(!k) return; // guest — don't persist
+  localStorage.setItem(k, JSON.stringify(s));
+}
+
+// Wipe the local stats cache for the current user (called on logout)
+function clearLocalStats(){
+  const k = statsKey();
+  if(k) localStorage.removeItem(k);
+}
 
 function ptDateStr(ts){return new Date(ts??Date.now()).toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'});}
 function daysBetween(d1,d2){if(!d1||!d2)return Infinity;return Math.round((new Date(d1)-new Date(d2))/86400000);}
+
 function checkStreakOnLoad(){
+  if(!me) return; // guests have no streak to check
   const s=ld();
-  if(!s.streak||!s.lastStreakDate)return;
+  if(!s.streak||!s.lastStreakDate) return;
   if(daysBetween(ptDateStr(),s.lastStreakDate)>1){s.streak=0;sv(s);updateHdr(s);}
 }
 
@@ -162,7 +192,7 @@ async function doRegister(){
   sendRegEmail(email,user,total);
   btn.disabled=false;btn.textContent='Create Account';
   ok.textContent='Account created!';ok.classList.add('on');
-  setTimeout(()=>{signIn({username:user,email:email,stats:stats},true);closeMo('authMo');toast('Welcome to Servele, '+user+'!');},700);
+  setTimeout(()=>{signIn({username:user,email:email,stats:stats});closeMo('authMo');toast('Welcome to Servele, '+user+'!');},700);
 }
 
 async function doLogin(){
@@ -183,37 +213,29 @@ async function doLogin(){
   toast('Welcome back, '+rows[0].username+'!');
 }
 
-function signIn(ud, fresh=false){
-  me={username:ud.username,email:ud.email};
-  localStorage.setItem('sv_sess',JSON.stringify(me));
+function signIn(ud){
+  me = {username: ud.username, email: ud.email};
+  localStorage.setItem('sv_sess', JSON.stringify(me));
   $('acctBtn').classList.remove('guest');
-  $('acctAvatar').textContent=ud.username[0].toUpperCase();
-  $('acctLabel').textContent=ud.username;
-  if(fresh){
-    // Brand new account — always start with clean stats, ignore any guest play
-    const clean=emptyS();
-    sv(clean);updateHdr(clean);
-  } else {
-    // Existing account login — merge cloud stats with local
-    const local=ld(),cloud=ud.stats||emptyS();
-    const merged={
-      solved:Math.max(local.solved,cloud.solved),
-      guesses:local.guesses>0?local.guesses:cloud.guesses,
-      fastest:local.fastest!==null&&cloud.fastest!==null?Math.min(local.fastest,cloud.fastest):(local.fastest??cloud.fastest),
-      totalTime:Math.max(local.totalTime,cloud.totalTime),
-      streak:Math.max(local.streak,cloud.streak),
-      best:Math.max(local.best,cloud.best),
-      times:cloud.times.length>=local.times.length?cloud.times:local.times,
-      lastStreakDate:local.lastStreakDate||cloud.lastStreakDate
-    };
-    sv(merged);updateHdr(merged);
-  }
+  $('acctAvatar').textContent = ud.username[0].toUpperCase();
+  $('acctLabel').textContent  = ud.username;
+  // Load this user's stats from cloud into their per-user local cache
+  const stats = ud.stats || emptyS();
+  sv(stats);       // writes to 'sv_stats_<username>'
+  updateHdr(stats);
 }
 
 async function doLogout(){
-  await syncCloud();me=null;localStorage.removeItem('sv_sess');
-  $('acctBtn').classList.add('guest');$('acctAvatar').textContent='?';$('acctLabel').textContent='Sign In';
-  closeMo('authMo');toast('Signed out. Stats saved.');
+  await syncCloud();       // save latest to Supabase first
+  clearLocalStats();       // wipe this user's local cache
+  me = null;
+  localStorage.removeItem('sv_sess');
+  $('acctBtn').classList.add('guest');
+  $('acctAvatar').textContent = '?';
+  $('acctLabel').textContent  = 'Sign In';
+  updateHdr(emptyS());     // reset header stats display to zero
+  closeMo('authMo');
+  toast('Signed out.');
 }
 
 async function syncCloud(){
@@ -329,6 +351,20 @@ function guess(name){
 
 async function onWin(){
   won=true;const e=stopT();$('inp').disabled=true;
+  const msgs=['Ace!','Perfect!','Brilliant!','Excellent!','Well done!','Got it!'];
+  $('se').textContent=guesses.length===1?'🏆':guesses.length<=3?'🎾':'✅';
+  $('stitle').textContent=msgs[Math.min(guesses.length-1,msgs.length-1)];
+  $('ssub').textContent='You found '+mystery.name+' in '+guesses.length+(guesses.length===1?' guess!'>' guesses!');
+  $('sg').textContent=guesses.length;$('stm').textContent=fmt(e);
+
+  if(!me){
+    // Guest — don't track stats, prompt to sign in
+    $('ssk').textContent='--';
+    $('succ').classList.add('on');$('scrollArea').scrollTop=0;
+    return;
+  }
+
+  // Signed in — save stats
   const s=ld();const today=ptDateStr();
   s.solved++;s.guesses+=guesses.length;s.totalTime+=e;
   if(s.fastest===null||e<s.fastest)s.fastest=e;
@@ -339,12 +375,8 @@ async function onWin(){
   s.lastStreakDate=today;
   if(s.streak>s.best)s.best=s.streak;
   sv(s);updateHdr(s);
-  if(me)syncCloud();
-  const msgs=['Ace!','Perfect!','Brilliant!','Excellent!','Well done!','Got it!'];
-  $('se').textContent=guesses.length===1?'🏆':guesses.length<=3?'🎾':'✅';
-  $('stitle').textContent=msgs[Math.min(guesses.length-1,msgs.length-1)];
-  $('ssub').textContent='You found '+mystery.name+' in '+guesses.length+(guesses.length===1?' guess!'>' guesses!');
-  $('sg').textContent=guesses.length;$('stm').textContent=fmt(e);$('ssk').textContent=s.streak;
+  syncCloud();
+  $('ssk').textContent=s.streak;
   $('succ').classList.add('on');$('scrollArea').scrollTop=0;
 }
 
@@ -427,6 +459,7 @@ async function init(){
   }catch(e){}
 
   checkStreakOnLoad();
+  // Always show current stats (zeros for guest, real stats if signed in via signIn above)
   updateHdr(ld());
 
   $('darkBtn').addEventListener('click',toggleDark);

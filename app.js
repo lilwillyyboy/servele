@@ -162,7 +162,7 @@ async function doRegister(){
   sendRegEmail(email,user,total);
   btn.disabled=false;btn.textContent='Create Account';
   ok.textContent='Account created!';ok.classList.add('on');
-  setTimeout(()=>{signIn({username:user,email:email,stats:stats});closeMo('authMo');toast('Welcome to Servele, '+user+'!');},700);
+  setTimeout(()=>{signIn({username:user,email:email,stats:stats},true);closeMo('authMo');toast('Welcome to Servele, '+user+'!');},700);
 }
 
 async function doLogin(){
@@ -183,24 +183,31 @@ async function doLogin(){
   toast('Welcome back, '+rows[0].username+'!');
 }
 
-function signIn(ud){
+function signIn(ud, fresh=false){
   me={username:ud.username,email:ud.email};
   localStorage.setItem('sv_sess',JSON.stringify(me));
   $('acctBtn').classList.remove('guest');
   $('acctAvatar').textContent=ud.username[0].toUpperCase();
   $('acctLabel').textContent=ud.username;
-  const local=ld(),cloud=ud.stats||emptyS();
-  const merged={
-    solved:Math.max(local.solved,cloud.solved),
-    guesses:local.guesses>0?local.guesses:cloud.guesses,
-    fastest:local.fastest!==null&&cloud.fastest!==null?Math.min(local.fastest,cloud.fastest):(local.fastest??cloud.fastest),
-    totalTime:Math.max(local.totalTime,cloud.totalTime),
-    streak:Math.max(local.streak,cloud.streak),
-    best:Math.max(local.best,cloud.best),
-    times:cloud.times.length>=local.times.length?cloud.times:local.times,
-    lastStreakDate:local.lastStreakDate||cloud.lastStreakDate
-  };
-  sv(merged);updateHdr(merged);
+  if(fresh){
+    // Brand new account — always start with clean stats, ignore any guest play
+    const clean=emptyS();
+    sv(clean);updateHdr(clean);
+  } else {
+    // Existing account login — merge cloud stats with local
+    const local=ld(),cloud=ud.stats||emptyS();
+    const merged={
+      solved:Math.max(local.solved,cloud.solved),
+      guesses:local.guesses>0?local.guesses:cloud.guesses,
+      fastest:local.fastest!==null&&cloud.fastest!==null?Math.min(local.fastest,cloud.fastest):(local.fastest??cloud.fastest),
+      totalTime:Math.max(local.totalTime,cloud.totalTime),
+      streak:Math.max(local.streak,cloud.streak),
+      best:Math.max(local.best,cloud.best),
+      times:cloud.times.length>=local.times.length?cloud.times:local.times,
+      lastStreakDate:local.lastStreakDate||cloud.lastStreakDate
+    };
+    sv(merged);updateHdr(merged);
+  }
 }
 
 async function doLogout(){
